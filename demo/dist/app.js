@@ -19,7 +19,7 @@ flourish.innerHTML=`<svg viewBox="0 0 340 72" fill="none">
 </svg>`;
 document.querySelector('header').after(flourish);
 $('#save').addEventListener('click',()=>{
-  if(!selected.size&&!$('#note').value.trim())return;
+  if(!selected.size)return;
   $('.app').classList.remove('just-recorded');
   void $('.app').offsetWidth;
   $('.app').classList.add('just-recorded');
@@ -30,7 +30,8 @@ let favorites=['低落','想哭','乏力','胸闷','说不清的难受'];
 let expandedTag=null;
 const descriptions={'电流感':'从心口传到手掌'};
 const selected=new Set(),ratings={},thoughtSelections=new Map();let records=[];
-const occurrenceParts=new Map();
+const occurrenceParts=new Map(),tagNotes=new Map();
+let editingId=null,draftBeforeEdit=null,pendingDeleteId=null,deletedRecords=[];
 const degreeExamples={
   '低落':['心情有些往下沉，仍能投入聊天或手头的事。','回应别人需要多一点力气，原本想做的事有些提不起劲。','更想独处，聊天或做喜欢的事也很难投入。','想做的事常常停下，回复消息、照顾自己都变得吃力。','低落占据几乎全部注意力，此刻很难进行日常小事。'],
   '焦虑':['脑中冒出担心，转去做别的事时还能放下。','反复想同一件事，要提醒自己才回到眼前。','很难停止担心，读一段文字或听别人说话会不断走神。','坐着也难安定，需要暂停手头的事才能缓一缓。','担心几乎占满脑子，此刻很难交谈或做简单的事。'],
@@ -97,7 +98,7 @@ function renderSelected(){
   let detail='';
   if(expandedTag){
     const tag=expandedTag,category=categoryOf(tag),thought=category==='念头与冲动';
-    const rated=!!degreeExamples[tag];
+    const rated=!!degreeExamples[tag]||thought;
     detail='<div class="selected-detail"><div class="selected-label"><strong>'+escapeHTML(tag)+'</strong><button class="text-button" data-tag="'+escapeHTML(tag)+'">移除</button></div>';
     if(bodyPartsOf(tag).length){
       const parts=[...new Set([...bodyPartsOf(tag),'其他部位','说不清'])];
@@ -107,17 +108,17 @@ function renderSelected(){
     if(rated){
       detail+='<div class="rating" role="group" aria-label="'+escapeHTML(tag)+'程度">'+[1,2,3,4,5].map(n=>'<button type="button" data-rating="'+n+'" data-name="'+escapeHTML(tag)+'" class="'+(ratings[tag]===n?'active':'')+'" aria-label="'+escapeHTML(tag)+'程度 '+n+' / 5" aria-pressed="'+(ratings[tag]===n)+'"><span class="rating-dot" aria-hidden="true"></span><span class="rating-number" aria-hidden="true">'+n+'</span></button>').join('')+'</div>';
       const examples=degreeExamples[tag];
-      const help=examples?(ratings[tag]?examples[ratings[tag]-1]:'点圆点看看对应的例子，也可以不评分。'):'按你这次的感受选择，也可以不评分。';
-      detail+='<div class="degree-reference" aria-live="polite"><span class="meta">'+(examples?'参考例子'+(ratings[tag]?' · '+ratings[tag]+' / 5':''):'这次的程度')+'</span><p class="rating-caption">'+escapeHTML(help)+'</p>'+(examples?'<p class="reference-note">只作个人对照，选最接近的一档，不必每句话都符合。</p>':'')+'</div>';
+      const help=examples?(ratings[tag]?examples[ratings[tag]-1]:'点圆点看看对应的例子，也可以不评分。'):(thought?'只按这次念头或冲动的强烈程度选择，也可以不评分。':'按你这次的感受选择，也可以不评分。');
+      detail+='<div class="degree-reference" aria-live="polite"><span class="meta">'+(examples?'参考例子'+(ratings[tag]?' · '+ratings[tag]+' / 5':''):(thought?'这次的强烈程度':'这次的程度'))+'</span><p class="rating-caption">'+escapeHTML(help)+'</p>'+(examples?'<p class="reference-note">只作个人对照，选最接近的一档，不必每句话都符合。</p>':'')+'</div>';
       if(tag==='乏力')detail+='<p class="reference-note">“不想动”和“想动却使不上力”可以分别写在补充里；不必只凭不想动来选程度。</p>';
     }else detail+='<p class="meta">'+(thought?'只记这个分类也可以，不需要评分或解释。':observationHints[tag]??'记下这个词就可以，不需要评分。')+'</p>';
-    detail+='</div>';
+    detail+='<label class="note-label" for="tag-note">想补充的话 <span>可不填</span></label><textarea id="tag-note" data-note-tag="'+escapeHTML(tag)+'" rows="2" placeholder="补充这个标签的感受、当时在做什么……">'+escapeHTML(tagNotes.get(tag)||'')+'</textarea></div>';
   }
   $('#selected').innerHTML='<div class="chips selected-chips">'+compact+'</div>'+detail;
 }
 document.addEventListener('click',e=>{
   const b=e.target.closest('[data-tag]');
-  if(b){const tag=b.dataset.tag;if(selected.has(tag)){selected.delete(tag);delete ratings[tag];occurrenceParts.delete(tag);}else selected.add(tag);renderTags();}
+  if(b){const tag=b.dataset.tag;if(selected.has(tag)){selected.delete(tag);delete ratings[tag];occurrenceParts.delete(tag);tagNotes.delete(tag);}else selected.add(tag);renderTags();}
   const part=e.target.closest('[data-occurrence-part]');
   if(part){const tag=part.dataset.name,value=part.dataset.occurrencePart;const parts=occurrenceParts.get(tag)??new Set();parts.has(value)?parts.delete(value):parts.add(value);occurrenceParts.set(tag,parts);renderSelected();}
   const x=e.target.closest('[data-expand]');
@@ -125,92 +126,189 @@ document.addEventListener('click',e=>{
   const r=e.target.closest('[data-rating]');
   if(r){const n=Number(r.dataset.rating);ratings[r.dataset.name]=ratings[r.dataset.name]===n?null:n;renderSelected();}
 });
-document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{document.querySelectorAll('.tab').forEach(t=>{t.classList.toggle('active',t===b);t.setAttribute('aria-pressed',t===b)});$('#record').hidden=b.dataset.page!=='record';$('#export').hidden=b.dataset.page!=='export';});
+document.addEventListener('input',e=>{if(e.target.matches('[data-note-tag]'))tagNotes.set(e.target.dataset.noteTag,e.target.value);});
+
+function showPage(page){document.querySelectorAll('.tab').forEach(t=>{t.classList.toggle('active',t.dataset.page===page);t.setAttribute('aria-pressed',t.dataset.page===page)});$('#record').hidden=page!=='record';$('#export').hidden=page!=='export';}
+document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>showPage(b.dataset.page));
 $('#time-toggle').onclick=()=>{$('#time-field').hidden=!$('#time-field').hidden;};
 function toast(msg){$('#toast').textContent=msg;$('#toast').style.display='block';clearTimeout(window.toastTimer);window.toastTimer=setTimeout(()=>$('#toast').style.display='none',2400);}
-$('#save').onclick=()=>{if(!selected.size&&!$('#note').value.trim()&&!thoughtSelections.size){toast('选一个标签，或写一句话就好');return;}const date=$('#occurred').value?new Date($('#occurred').value):new Date();records.unshift({date,tags:[...selected].map(t=>t+(occurrenceParts.get(t)?.size?'（'+[...occurrenceParts.get(t)].join('、')+'）':'')+(ratings[t]?` · ${ratings[t]}`:'')),thoughts:[...thoughtSelections.keys()],note:$('#note').value.trim()});$('#history').innerHTML=records.map(r=>`<article class="history-item"><small>${r.date.toLocaleString('zh-CN',{month:'long',day:'numeric',hour:'2-digit',minute:'2-digit'})} · 演示记录</small><p>${r.tags.map(escapeHTML).join(' · ')}</p>${r.thoughts.map(t=>`<p>${escapeHTML(t)}</p>`).join('')}<p>${escapeHTML(r.note)}</p></article>`).join('');selected.clear();occurrenceParts.clear();Object.keys(ratings).forEach(k=>delete ratings[k]);thoughtSelections.clear();document.querySelectorAll('[data-thought]').forEach(b=>{b.classList.remove('active');b.setAttribute('aria-pressed','false')});$('#note').value='';$('#occurred').value='';$('#time-field').hidden=true;renderTags();toast('已记下，往下可以回看');};
+$('#save').onclick=()=>{
+ if(!selected.size&&!thoughtSelections.size&&!$('#legacy-note').value.trim()){toast('先选一个标签，就可以记下');return;}
+ const editIndex=editingId===null?-1:records.findIndex(r=>r.id===editingId);
+ if(editingId!==null&&editIndex<0){toast('这条记录已不存在，请取消修改');return;}
+ const previous=editIndex>=0?records[editIndex]:null;
+ const date=previous&&$('#occurred').value===localDateTime(previous.date)?new Date(previous.date):($('#occurred').value?new Date($('#occurred').value):new Date());
+ if(!Number.isFinite(date.getTime())){toast('请检查发生时间');return;}
+ const record={...previous,id:previous?.id??(crypto.randomUUID?crypto.randomUUID():Array.from(crypto.getRandomValues(new Uint8Array(16)),b=>b.toString(16).padStart(2,'0')).join('')),date:date.toISOString(),tags:[...selected].map(name=>({name,parts:[...(occurrenceParts.get(name)??[])],rating:ratings[name]??null,note:(tagNotes.get(name)||'').trim()})),thoughts:[...thoughtSelections.keys()],note:editingId!==null?$('#legacy-note').value.trim():''};
+ if(previous)records[editIndex]=record;else records.unshift(record);
+ if(!persist()){if(previous)records[editIndex]=previous;else records.shift();return;}
+ if(previous){finishEditing();selectingDates=false;showPage('export');}else{
+ selected.clear();occurrenceParts.clear();tagNotes.clear();Object.keys(ratings).forEach(k=>delete ratings[k]);thoughtSelections.clear();
+ document.querySelectorAll('[data-thought]').forEach(b=>{b.classList.remove('active');b.setAttribute('aria-pressed','false')});
+ $('#occurred').value='';$('#time-field').hidden=true;
+ }
+ reviewDay=dayKey(date);reviewMonth=new Date(date.getFullYear(),date.getMonth(),1);
+ renderTags();renderReview();renderReport();toast(previous?'修改已保存':'已保存到本机');
+};
 $('#add').onclick=()=>{$('#library').innerHTML=[...new Set(Object.values(groups).flatMap(g=>Array.isArray(g)?g:Object.values(g).flat()))].map(t=>`<button type="button" class="chip ${favorites.includes(t)?'active':''}" data-favorite="${escapeHTML(t)}" aria-pressed="${favorites.includes(t)}">${escapeHTML(t)}</button>`).join('');$('#add-dialog').showModal();};
 $('#library').onclick=e=>{const b=e.target.closest('[data-favorite]');if(!b)return;const t=b.dataset.favorite;favorites=favorites.includes(t)?favorites.filter(x=>x!==t):[...favorites,t];b.classList.toggle('active',favorites.includes(t));b.setAttribute('aria-pressed',favorites.includes(t));renderTags();};
 $('#close').onclick=()=>$('#add-dialog').close();$('#custom-category').onchange=()=>$('#body-part-field').hidden=$('#custom-category').value!=='身体';
 $('#add-form').onsubmit=e=>{e.preventDefault();const name=$('#custom-name').value.trim();if(!name){$('#custom-name').focus();return;}if(categoryOf(name)){toast('已有这个标签，可以从上方添加');return;}const g=$('#custom-category').value;if(g==='身体'){const parts=[...document.querySelectorAll('[name="body-part"]:checked')].map(e=>e.value);if(!parts.length){toast('选一个部位，或选其他部位');return;}parts.forEach(p=>(groups.身体[p]??=[]).push(name));}else groups[g].push(name);descriptions[name]=$('#custom-description').value.trim();favorites.push(name);renderTags();$('#custom-name').value='';$('#custom-description').value='';document.querySelectorAll('[name="body-part"]').forEach(e=>e.checked=false);$('#add-dialog').close();toast('已添加到常用');};
-document.querySelectorAll('.ranges .chip').forEach(b=>b.onclick=()=>{document.querySelectorAll('.ranges .chip').forEach(c=>c.classList.toggle('active',c===b));$('#custom-range').hidden=b.textContent!=='自定义';});
+
 renderTags();
-// Calendar selection is preview-only, just like the demo records.
-(() => {
-  const host = document.querySelector('#custom-range');
-  const today = new Date();
-  let month = new Date(today.getFullYear(), today.getMonth(), 1);
-  const selectedDays = new Set();
-  let gesture = null;
-  const key = date => `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
-  host.innerHTML = `<section class="calendar" aria-label="选择导出日期">
-    <div class="calendar-heading"><button type="button" data-month="-1" aria-label="上个月">‹</button><h3 id="calendar-month" aria-live="polite"></h3><button type="button" data-month="1" aria-label="下个月">›</button></div>
-    <p class="calendar-hint">点选日期，或按住滑动；从已选日期开始滑动可取消。</p>
-    <div class="calendar-week" aria-hidden="true">${['一','二','三','四','五','六','日'].map(d=>`<span>${d}</span>`).join('')}</div>
-    <div class="calendar-days" aria-labelledby="calendar-month"></div>
-    <div class="calendar-bottom"><span id="calendar-status" role="status"></span><button type="button" id="calendar-clear" class="text-button">清空选择</button></div>
-  </section>`;
-  const grid = host.querySelector('.calendar-days');
-  const status = host.querySelector('#calendar-status');
-  function updateSelection() {
-    grid.querySelectorAll('[data-date]').forEach(button => {
-      const on = selectedDays.has(button.dataset.date);
-      button.classList.toggle('selected', on);
-      button.setAttribute('aria-pressed', String(on));
-    });
-    status.textContent = selectedDays.size ? `已选 ${selectedDays.size} 天` : '还未选择日期';
-    host.querySelector('#calendar-clear').disabled = !selectedDays.size;
-  }
-  function render() {
-    const year = month.getFullYear(), m = month.getMonth();
-    host.querySelector('#calendar-month').textContent = `${year} 年 ${m+1} 月`;
-    const offset = (month.getDay()+6)%7;
-    const days = new Date(year,m+1,0).getDate();
-    grid.innerHTML = '<span class="calendar-blank" aria-hidden="true"></span>'.repeat(offset)
-      + Array.from({length:days},(_,i)=>{
-        const date = new Date(year,m,i+1), dateKey = key(date);
-        return `<button type="button" class="calendar-day" data-date="${dateKey}" aria-label="${year}年${m+1}月${i+1}日" ${dateKey===key(today)?'aria-current="date"':''}>${i+1}</button>`;
-      }).join('');
-    updateSelection();
-  }
-  function paint(button) {
-    if (!gesture || !button || gesture.visited.has(button.dataset.date)) return;
-    const date = button.dataset.date;
-    gesture.visited.add(date);
-    gesture.select ? selectedDays.add(date) : selectedDays.delete(date);
-    updateSelection();
-  }
-  grid.addEventListener('pointerdown',event=>{
-    const button = event.target.closest('[data-date]');
-    if (!button || event.button!==0 || !event.isPrimary) return;
-    gesture = {id:event.pointerId,select:!selectedDays.has(button.dataset.date),visited:new Set(),before:new Set(selectedDays)};
-    grid.setPointerCapture(event.pointerId);
-    paint(button);
-  });
-  grid.addEventListener('pointermove',event=>{
-    if (!gesture || gesture.id!==event.pointerId) return;
-    const target = document.elementFromPoint(event.clientX,event.clientY);
-    const button = target?.closest('[data-date]');
-    if (button && grid.contains(button)) paint(button);
-  });
-  grid.addEventListener('pointerup',event=>{
-    if (gesture?.id===event.pointerId) { gesture=null; if(grid.hasPointerCapture(event.pointerId)) grid.releasePointerCapture(event.pointerId); }
-  });
-  grid.addEventListener('pointercancel',()=>{
-    if (gesture) { selectedDays.clear();gesture.before.forEach(d=>selectedDays.add(d));gesture=null;updateSelection(); }
-  });
-  grid.addEventListener('lostpointercapture',()=>{gesture=null;});
-  grid.addEventListener('click',event=>{
-    // Pointer selection is handled above; keyboard/assistive clicks come here.
-    if(event.detail!==0)return;
-    const button=event.target.closest('[data-date]');if(!button)return;
-    const date=button.dataset.date;
-    selectedDays.has(date)?selectedDays.delete(date):selectedDays.add(date);
-    updateSelection();
-  });
-  host.querySelectorAll('[data-month]').forEach(button=>button.addEventListener('click',()=>{
-    month=new Date(month.getFullYear(),month.getMonth()+Number(button.dataset.month),1);render();
-  }));
-  host.querySelector('#calendar-clear').addEventListener('click',()=>{selectedDays.clear();updateSelection();});
-  render();
-})();
+
+const storageKey='cike-v1';
+const dayKey=date=>{const d=new Date(date);return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;};
+let reviewDay=dayKey(new Date()),reviewMonth=new Date(new Date().getFullYear(),new Date().getMonth(),1);
+let storageReadable=true;
+try{
+ const saved=JSON.parse(localStorage.getItem(storageKey)||'null');
+ if(saved){
+  if(!Array.isArray(saved.records))throw Error('invalid storage');
+  records=saved.records;
+  deletedRecords=Array.isArray(saved.deletedRecords)?saved.deletedRecords:[];
+  if(saved.favorites)favorites=saved.favorites;
+  if(saved.groups)Object.assign(groups,saved.groups);
+  if(saved.descriptions)Object.assign(descriptions,saved.descriptions);
+ }
+}catch(error){storageReadable=false;toast('本机数据未能读取，请勿继续记录或清理应用数据');}
+function persist(){
+ if(!storageReadable){toast('请先处理本机数据读取问题');return false;}
+ try{localStorage.setItem(storageKey,JSON.stringify({version:1,records,deletedRecords,favorites,groups,descriptions}));return true;}
+ catch(error){toast('保存失败，可能是存储空间不足；内容仍留在页面');return false;}
+}
+$('.draft').textContent='仅存本机';
+$('#export').innerHTML=`<div class="section-head"><h2>留下的片刻</h2><div class="history-actions"><button id="undo-delete" class="text-button" hidden>撤销删除</button><button id="select-dates" class="text-button">选择日期</button></div></div><p class="subtext" id="calendar-help">点击查看当天记录，长按选择导出日期。</p><div id="review-calendar" class="calendar"></div><section id="selection-tools" hidden><div class="section-head"><span id="selection-status" class="meta"></span><button id="cancel-selection" class="text-button">取消选择</button></div><div class="chips ranges">${[7,14,30].map(n=>`<button class="chip" data-quick-days="${n}">${n} 天</button>`).join('')}<button class="chip" data-quick-custom>自定义</button></div><div class="report-range" id="custom-range" hidden><label>开始日期<input type="date" id="report-start"></label><label>结束日期<input type="date" id="report-end"></label></div><button class="save" id="print-report">导出给医生的记录</button></section><div id="history"></div>`;
+$('.history').remove();
+const reviewTab=document.querySelector('[data-page="export"]');reviewTab.textContent='回看 / 导出';
+let selectingDates=false,rangeAnchor=null,rangeStart=null,rangeEnd=null,activeQuick=null;
+function chooseRange(anchor,end){
+ selectingDates=true;rangeAnchor=anchor;[rangeStart,rangeEnd]=[anchor,end].sort();
+ $('#report-start').value=rangeStart;$('#report-end').value=rangeEnd;
+ renderReview();
+}
+function activateDate(key,longPress=false){
+ if(longPress){activeQuick=null;chooseRange(key,key);return;}
+ if(selectingDates){activeQuick=null;chooseRange(rangeAnchor||key,key);}
+ else{reviewDay=key;renderReview();}
+}
+function recordHTML(r,actions=false){
+ return `<article class="history-item"><small>${escapeHTML(new Date(r.date).toLocaleString('zh-CN',{hour:'2-digit',minute:'2-digit'}))}</small><ul class="record-tags">${r.tags.map(t=>`<li><strong>${escapeHTML(t.name)}</strong>${t.parts.length?' · '+escapeHTML(t.parts.join('、')):''}${t.rating?' · 程度 '+t.rating+'/5':''}${t.note?'<p class="tag-history-note">'+escapeHTML(t.note)+'</p>':''}</li>`).join('')}</ul>${(r.thoughts||[]).map(t=>`<p>${escapeHTML(t)}</p>`).join('')}${r.note?`<p>${escapeHTML(r.note)}</p>`:''}${actions===true?`<div class="history-item-actions"><button class="text-button" data-edit-record="${escapeHTML(r.id)}">编辑</button><button class="text-button" data-delete-record="${escapeHTML(r.id)}">删除</button></div>`:''}</article>`;
+}
+function renderReview(){
+ const year=reviewMonth.getFullYear(),month=reviewMonth.getMonth();
+ const counts=new Map();records.forEach(r=>{const key=dayKey(r.date);counts.set(key,(counts.get(key)||0)+1);});
+ $('#review-calendar').innerHTML=`<div class="calendar-heading"><button data-review-month="-1" aria-label="上个月">‹</button><h3>${year} 年 ${month+1} 月</h3><button data-review-month="1" aria-label="下个月">›</button></div><div class="calendar-week">${['一','二','三','四','五','六','日'].map(d=>`<span>${d}</span>`).join('')}</div><div class="calendar-days">${'<span></span>'.repeat((reviewMonth.getDay()+6)%7)}${Array.from({length:new Date(year,month+1,0).getDate()},(_,i)=>{const key=dayKey(new Date(year,month,i+1)),count=counts.get(key)||0;return `<button class="calendar-day ${selectingDates?(key>=rangeStart&&key<=rangeEnd?'selected':''):(key===reviewDay?'viewing':'')}" data-review-day="${key}" aria-pressed="${selectingDates?key>=rangeStart&&key<=rangeEnd:key===reviewDay}" aria-label="${key}，${count} 条记录">${i+1}${count?'<span class="day-dot"></span>':''}</button>`;}).join('')}</div>`;
+ $('#undo-delete').hidden=!deletedRecords.length;
+ $('#selection-tools').hidden=!selectingDates;$('#select-dates').hidden=selectingDates;
+ $('#calendar-help').textContent=selectingDates?'再点一个日期，自动选中两者之间的所有日期。':'点击查看当天记录，长按选择导出日期。';
+ $('#selection-status').textContent=selectingDates?`${rangeStart} 至 ${rangeEnd}`:'';
+ document.querySelectorAll('[data-quick-days]').forEach(b=>b.classList.toggle('active',Number(b.dataset.quickDays)===activeQuick));
+ if(selectingDates){$('#history').innerHTML=reportHTML();return;}
+ const list=records.filter(r=>dayKey(r.date)===reviewDay).sort((a,b)=>new Date(a.date)-new Date(b.date));
+ $('#history').innerHTML=`<p class="subtext">${reviewDay} · ${list.length} 条记录</p>`+(list.length?list.map(r=>recordHTML(r,true)).join(''):'<p class="empty">这一天还没有记录。</p>');
+}
+$('#review-calendar').onclick=e=>{
+ const month=e.target.closest('[data-review-month]');if(month){reviewMonth=new Date(reviewMonth.getFullYear(),reviewMonth.getMonth()+Number(month.dataset.reviewMonth),1);renderReview();}
+ const day=e.target.closest('[data-review-day]');if(day){if(suppressDateClick===day.dataset.reviewDay){suppressDateClick=null;return;}suppressDateClick=null;activateDate(day.dataset.reviewDay);}
+};
+let pressTimer=null,pressOrigin=null,suppressDateClick=null;
+const calendar=$('#review-calendar');
+function cancelPress(){clearTimeout(pressTimer);pressTimer=null;pressOrigin=null;}
+calendar.addEventListener('pointerdown',e=>{
+ if(e.button!==0||e.isPrimary===false)return;
+ const button=e.target.closest('[data-review-day]');if(!button)return;
+ cancelPress();suppressDateClick=null;pressOrigin={x:e.clientX,y:e.clientY};
+ const key=button.dataset.reviewDay;
+ pressTimer=setTimeout(()=>{suppressDateClick=key;activateDate(key,true);cancelPress();},500);
+});
+calendar.addEventListener('pointermove',e=>{if(pressOrigin&&Math.hypot(e.clientX-pressOrigin.x,e.clientY-pressOrigin.y)>10)cancelPress();});
+['pointerup','pointercancel','pointerleave'].forEach(type=>calendar.addEventListener(type,cancelPress));
+calendar.addEventListener('contextmenu',e=>{if(e.target.closest('[data-review-day]'))e.preventDefault();});
+calendar.addEventListener('keydown',e=>{const button=e.target.closest('[data-review-day]');if(button&&e.shiftKey&&(e.key==='Enter'||e.key===' ')){e.preventDefault();activateDate(button.dataset.reviewDay,true);}});
+$('#select-dates').onclick=()=>{activeQuick=null;chooseRange(reviewDay,reviewDay);};
+$('#cancel-selection').onclick=()=>{selectingDates=false;rangeAnchor=rangeStart=rangeEnd=null;activeQuick=null;$('#custom-range').hidden=true;renderReview();};
+$('#selection-tools').addEventListener('click',e=>{
+ const quick=e.target.closest('[data-quick-days]');
+ if(quick){const end=new Date(),start=new Date();activeQuick=Number(quick.dataset.quickDays);start.setDate(start.getDate()-activeQuick+1);$('#custom-range').hidden=true;chooseRange(dayKey(start),dayKey(end));reviewMonth=new Date(end.getFullYear(),end.getMonth(),1);renderReview();}
+ if(e.target.closest('[data-quick-custom]')){$('#custom-range').hidden=false;activeQuick=null;renderReview();}
+});
+function reportRecords(){const start=$('#report-start').value,end=$('#report-end').value;return records.filter(r=>dayKey(r.date)>=start&&dayKey(r.date)<=end).sort((a,b)=>new Date(a.date)-new Date(b.date));}
+function reportHTML(){
+ const start=$('#report-start').value,end=$('#report-end').value;
+ if(!start||!end||start>end)return '<p class="empty">请选择有效的起止日期。</p>';
+ const list=reportRecords(),days=[...new Set(list.map(r=>dayKey(r.date)))];
+ return `<h2>此刻 · 个人记录</h2><p>${escapeHTML(start)} 至 ${escapeHTML(end)}</p><p>共 ${list.length} 条记录，记录覆盖 ${days.length} 天。</p><p class="report-explanation">以下为本人主动记录的当下体验，非诊断或临床量表。未评分不代表零程度，未记录不代表未发生；不同标签的程度不加总。</p>${days.map(day=>`<section class="report-day"><h3>${day}</h3>${list.filter(r=>dayKey(r.date)===day).map(recordHTML).join('')}</section>`).join('')||'<p class="empty">这段时间暂无记录。</p>'}`;
+}
+function renderReport(){if(selectingDates)$('#history').innerHTML=reportHTML();}
+function updateCustomRange(){rangeStart=$('#report-start').value;rangeEnd=$('#report-end').value;rangeAnchor=rangeStart;activeQuick=null;renderReview();}
+$('#report-start').onchange=updateCustomRange;$('#report-end').onchange=updateCustomRange;
+$('#print-report').onclick=()=>{
+ const start=$('#report-start').value,end=$('#report-end').value;
+ if(!start||!end||start>end){toast('请检查起止日期');return;}
+ if(!reportRecords().length){toast('这段时间暂无记录');return;}
+ if(window.CikeAndroid){
+  window.CikeAndroid.saveWord(JSON.stringify({start,end,records:reportRecords().map(r=>({...r,day:dayKey(r.date),time:new Date(r.date).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit',hour12:false}),tags:r.tags.map(t=>({...t,symptom:!['活动','用药'].includes(categoryOf(t.name))&&t.name!=='平静'}))}))}));
+  return;
+ }
+ let sheet=$('#print-sheet');if(!sheet){sheet=document.createElement('section');sheet.id='print-sheet';document.body.append(sheet);}
+ sheet.innerHTML=reportHTML();window.print();
+};
+// Persist changes to the personal vocabulary independently of record submission.
+$('#library').addEventListener('click',()=>persist());
+$('#add-form').addEventListener('submit',()=>persist());
+renderTags();renderReview();renderReport();
+
+if(window.CikeAndroid)document.documentElement.classList.add('android-app');
+window.cikeBack=()=>{
+ const openDialog=document.querySelector('dialog[open]');if(openDialog){openDialog.close();return true;}
+ if(!$('#record').hidden&&editingId!==null){$('#cancel-edit').onclick();return true;}
+ if(!$('#export').hidden&&selectingDates){$('#cancel-selection').onclick();return true;}
+ if(!$('#export').hidden){document.querySelector('[data-page="record"]').click();return true;}
+ return false;
+};
+
+function composerSnapshot(){return {tags:[...selected],ratings:{...ratings},parts:[...occurrenceParts].map(([k,v])=>[k,[...v]]),notes:[...tagNotes],thoughts:[...thoughtSelections],occurred:$('#occurred').value,timeHidden:$('#time-field').hidden,expanded:expandedTag,legacy:$('#legacy-note').value};}
+function restoreComposer(draft){
+ selected.clear();draft.tags.forEach(t=>selected.add(t));Object.keys(ratings).forEach(k=>delete ratings[k]);Object.assign(ratings,draft.ratings);
+ occurrenceParts.clear();draft.parts.forEach(([k,v])=>occurrenceParts.set(k,new Set(v)));tagNotes.clear();draft.notes.forEach(([k,v])=>tagNotes.set(k,v));
+ thoughtSelections.clear();draft.thoughts.forEach(([k,v])=>thoughtSelections.set(k,v));expandedTag=draft.expanded;$('#occurred').value=draft.occurred;$('#time-field').hidden=draft.timeHidden;$('#legacy-note').value=draft.legacy;renderTags();
+}
+function finishEditing(){
+ const draft=draftBeforeEdit;editingId=null;draftBeforeEdit=null;
+ $('.moment-heading h2').textContent='这一刻';$('#save').innerHTML='记下 <span aria-hidden="true">↗</span>';$('#cancel-edit').hidden=true;$('#legacy-note-field').hidden=true;
+ if(draft)restoreComposer(draft);
+}
+function localDateTime(value){const date=new Date(value);return new Date(date.getTime()-date.getTimezoneOffset()*60000).toISOString().slice(0,16);}
+function beginEditing(id){
+ if(editingId!==null){toast('请先保存或取消正在修改的记录');showPage('record');return;}
+ const record=records.find(r=>r.id===id);if(!record)return;
+ draftBeforeEdit=composerSnapshot();editingId=id;
+ const local=localDateTime(record.date);
+ restoreComposer({tags:record.tags.map(t=>t.name),ratings:Object.fromEntries(record.tags.filter(t=>t.rating).map(t=>[t.name,t.rating])),parts:record.tags.map(t=>[t.name,t.parts||[]]),notes:record.tags.map(t=>[t.name,t.note||'']),thoughts:(record.thoughts||[]).map(t=>[t,true]),occurred:local,timeHidden:false,expanded:record.tags[0]?.name??null,legacy:record.note||''});
+ $('.moment-heading h2').textContent='修改记录';$('#save').textContent='保存修改';$('#cancel-edit').hidden=false;$('#legacy-note-field').hidden=!record.note;showPage('record');$('#record-scroll').scrollTop=0;
+}
+$('#cancel-edit').onclick=()=>{if(editingId===null)return;finishEditing();showPage('export');};
+function requestDelete(id){
+ if(editingId===id){toast('请先保存或取消这条记录的修改');return;}
+ const record=records.find(r=>r.id===id);if(!record)return;
+ pendingDeleteId=id;$('#delete-preview').textContent=new Date(record.date).toLocaleString('zh-CN')+' · '+record.tags.map(t=>t.name).join('、');$('#delete-dialog').showModal();
+}
+function confirmDelete(){
+ const index=records.findIndex(r=>r.id===pendingDeleteId);if(index<0)return;
+ const [record]=records.splice(index,1);deletedRecords.push({record,deletedAt:new Date().toISOString()});
+ if(!persist()){deletedRecords.pop();records.splice(index,0,record);return;}
+ pendingDeleteId=null;$('#delete-dialog').close();renderReview();toast('已删除，可以撤销');
+}
+$('#confirm-delete').onclick=confirmDelete;
+$('#cancel-delete').onclick=()=>{$('#delete-dialog').close();pendingDeleteId=null;};
+$('#delete-dialog').addEventListener('close',()=>{pendingDeleteId=null;});
+$('#undo-delete').onclick=()=>{
+ const item=deletedRecords.pop();if(!item)return;
+ records.unshift(item.record);if(!persist()){records.shift();deletedRecords.push(item);return;}
+ const date=new Date(item.record.date);reviewDay=dayKey(date);reviewMonth=new Date(date.getFullYear(),date.getMonth(),1);selectingDates=false;renderReview();toast('记录已恢复');
+};
+document.addEventListener('click',e=>{
+ const edit=e.target.closest('[data-edit-record]');if(edit)beginEditing(edit.dataset.editRecord);
+ const remove=e.target.closest('[data-delete-record]');if(remove)requestDelete(remove.dataset.deleteRecord);
+});

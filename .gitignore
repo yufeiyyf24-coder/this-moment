@@ -1,0 +1,7 @@
+.build-tools/
+.gradle/
+android/.gradle/
+android/local.properties
+android/app/build/
+outputs/rendered/
+outputs/*render/
