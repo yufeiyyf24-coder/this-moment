@@ -25,8 +25,10 @@ $('#save').addEventListener('click',()=>{
   $('.app').classList.add('just-recorded');
   setTimeout(()=>$('.app').classList.remove('just-recorded'),900);
 });
-const groups={情绪:['低落','焦虑','烦躁','空','想哭','平静'],身体:{头部:['头痛','头晕'],胸部:['胸闷','心悸','电流感'],手部:['电流感'],腹部:['恶心','腹痛'],四肢:['手抖','发麻'],全身:['乏力','疲惫']},状态:['注意力差','启动困难','过载','飘','脑子关不掉','说不清的难受'],'念头与冲动':['消极想法','自伤念头 / 冲动'],活动:['哭','出门','社交','运动','兴趣活动'],用药:['正常服药','晚服','漏服','不适'],'其他 / 不确定':[]};
+const groups={情绪:['低落','焦虑','烦躁','空','想哭','平静'],身体:{头部:['头痛','头晕'],胸部:['胸闷','心悸','电流感'],手部:['电流感'],腹部:['恶心','腹痛'],四肢:['手抖','发麻'],全身:['乏力','疲惫']},状态:['注意力差','启动困难','过载','飘','脑子关不掉','说不清的难受'],'念头与冲动':['消极想法','自伤念头 / 冲动'],活动:['哭','出门','社交','运动','兴趣活动'],用药:['正常服药','晚服','漏服','不适']};
 let favorites=['低落','想哭','乏力','胸闷','说不清的难受'];
+const RATABLE_CATEGORIES=new Set(['情绪','身体','状态']);
+let customTags=new Set();
 let expandedTag=null;
 const descriptions={'电流感':'从心口传到手掌'};
 const selected=new Set(),ratings={},thoughtSelections=new Map();let records=[];
@@ -75,7 +77,7 @@ function renderTags(){
  const body=name==='身体';
  const content=body?(bodyExpanded?Object.entries(tags).map(([part,list])=>'<section class="body-part-row"><h4>'+escapeHTML(part)+'</h4><div class="chips">'+list.map(chip).join('')+'</div></section>').join(''):'<div class="body-preview">'+Object.keys(tags).map(part=>'<button type="button" data-body-open aria-expanded="false" aria-controls="body-options">'+escapeHTML(part)+'</button>').join('')+'</div>'):'<div class="chips">'+tags.map(chip).join('')+'</div>'+(tags.length?'':'<span class="meta">可自定义</span>');
  return '<section class="category-line"><button type="button" class="category-label '+(highlightedCategory===name?'current':'')+'" data-category="'+escapeHTML(name)+'" '+(body?'aria-expanded="'+bodyExpanded+'" aria-controls="body-options"':'aria-label="'+escapeHTML(name)+'分类"')+'>'+escapeHTML(name)+(body?'<span class="body-toggle">'+(bodyExpanded?'收起 −':'展开 ＋')+'</span>':'')+'</button><div class="category-content" '+(body?'id="body-options"':'')+'>'+content+'</div></section>';
- }).join('');
+ }).join('')+'<section class="category-line"><button type="button" class="category-label" data-new-tag>＋ 添加新标签</button></section>';
  renderSelected();
 }
 document.addEventListener('click',event=>{
@@ -98,7 +100,7 @@ function renderSelected(){
   let detail='';
   if(expandedTag){
     const tag=expandedTag,category=categoryOf(tag),thought=category==='念头与冲动';
-    const rated=!!degreeExamples[tag]||thought;
+    const rated=!!degreeExamples[tag]||thought||(customTags.has(tag)&&RATABLE_CATEGORIES.has(category));
     detail='<div class="selected-detail"><div class="selected-label"><strong>'+escapeHTML(tag)+'</strong><button class="text-button" data-tag="'+escapeHTML(tag)+'">移除</button></div>';
     if(bodyPartsOf(tag).length){
       const parts=[...new Set([...bodyPartsOf(tag),'其他部位','说不清'])];
@@ -133,27 +135,37 @@ document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>showPage(b.dataset.pa
 $('#time-toggle').onclick=()=>{$('#time-field').hidden=!$('#time-field').hidden;};
 function toast(msg){$('#toast').textContent=msg;$('#toast').style.display='block';clearTimeout(window.toastTimer);window.toastTimer=setTimeout(()=>$('#toast').style.display='none',2400);}
 $('#save').onclick=()=>{
- if(!selected.size&&!thoughtSelections.size&&!$('#legacy-note').value.trim()){toast('先选一个标签，就可以记下');return;}
+ if(!selected.size&&!thoughtSelections.size&&!$('#free-note').value.trim()){toast('先选一个标签，或写点什么，就可以记下');return;}
  const editIndex=editingId===null?-1:records.findIndex(r=>r.id===editingId);
  if(editingId!==null&&editIndex<0){toast('这条记录已不存在，请取消修改');return;}
  const previous=editIndex>=0?records[editIndex]:null;
  const date=previous&&$('#occurred').value===localDateTime(previous.date)?new Date(previous.date):($('#occurred').value?new Date($('#occurred').value):new Date());
  if(!Number.isFinite(date.getTime())){toast('请检查发生时间');return;}
- const record={...previous,id:previous?.id??(crypto.randomUUID?crypto.randomUUID():Array.from(crypto.getRandomValues(new Uint8Array(16)),b=>b.toString(16).padStart(2,'0')).join('')),date:date.toISOString(),tags:[...selected].map(name=>({name,parts:[...(occurrenceParts.get(name)??[])],rating:ratings[name]??null,note:(tagNotes.get(name)||'').trim()})),thoughts:[...thoughtSelections.keys()],note:editingId!==null?$('#legacy-note').value.trim():''};
+ const record={...previous,id:previous?.id??(crypto.randomUUID?crypto.randomUUID():Array.from(crypto.getRandomValues(new Uint8Array(16)),b=>b.toString(16).padStart(2,'0')).join('')),date:date.toISOString(),tags:[...selected].map(name=>({name,parts:[...(occurrenceParts.get(name)??[])],rating:ratings[name]??null,note:(tagNotes.get(name)||'').trim()})),thoughts:[...thoughtSelections.keys()],note:$('#free-note').value.trim()};
  if(previous)records[editIndex]=record;else records.unshift(record);
  if(!persist()){if(previous)records[editIndex]=previous;else records.shift();return;}
  if(previous){finishEditing();selectingDates=false;showPage('export');}else{
  selected.clear();occurrenceParts.clear();tagNotes.clear();Object.keys(ratings).forEach(k=>delete ratings[k]);thoughtSelections.clear();
  document.querySelectorAll('[data-thought]').forEach(b=>{b.classList.remove('active');b.setAttribute('aria-pressed','false')});
- $('#occurred').value='';$('#time-field').hidden=true;
+ $('#occurred').value='';$('#time-field').hidden=true;$('#free-note').value='';
  }
  reviewDay=dayKey(date);reviewMonth=new Date(date.getFullYear(),date.getMonth(),1);
  renderTags();renderReview();renderReport();toast(previous?'修改已保存':'已保存到本机');
 };
-$('#add').onclick=()=>{$('#library').innerHTML=[...new Set(Object.values(groups).flatMap(g=>Array.isArray(g)?g:Object.values(g).flat()))].map(t=>`<button type="button" class="chip ${favorites.includes(t)?'active':''}" data-favorite="${escapeHTML(t)}" aria-pressed="${favorites.includes(t)}">${escapeHTML(t)}</button>`).join('');$('#add-dialog').showModal();};
+$('#add').onclick=()=>{$('#library').innerHTML=[...new Set(Object.values(groups).flatMap(g=>Array.isArray(g)?g:Object.values(g).flat()))].map(t=>`<button type="button" class="chip ${favorites.includes(t)?'active':''}" data-favorite="${escapeHTML(t)}" aria-pressed="${favorites.includes(t)}">${escapeHTML(t)}</button>`).join('');$('#favorites-dialog').showModal();};
+function renderCustomManager(){const list=[...customTags];$('#custom-manage').hidden=!list.length;$('#custom-tags').innerHTML=list.map(t=>`<button type="button" class="chip" data-remove-custom="${escapeHTML(t)}" aria-label="删除自定义标签 ${escapeHTML(t)}">${escapeHTML(t)} <span aria-hidden="true">✕</span></button>`).join('');}
 $('#library').onclick=e=>{const b=e.target.closest('[data-favorite]');if(!b)return;const t=b.dataset.favorite;favorites=favorites.includes(t)?favorites.filter(x=>x!==t):[...favorites,t];b.classList.toggle('active',favorites.includes(t));b.setAttribute('aria-pressed',favorites.includes(t));renderTags();};
-$('#close').onclick=()=>$('#add-dialog').close();$('#custom-category').onchange=()=>$('#body-part-field').hidden=$('#custom-category').value!=='身体';
-$('#add-form').onsubmit=e=>{e.preventDefault();const name=$('#custom-name').value.trim();if(!name){$('#custom-name').focus();return;}if(categoryOf(name)){toast('已有这个标签，可以从上方添加');return;}const g=$('#custom-category').value;if(g==='身体'){const parts=[...document.querySelectorAll('[name="body-part"]:checked')].map(e=>e.value);if(!parts.length){toast('选一个部位，或选其他部位');return;}parts.forEach(p=>(groups.身体[p]??=[]).push(name));}else groups[g].push(name);descriptions[name]=$('#custom-description').value.trim();favorites.push(name);renderTags();$('#custom-name').value='';$('#custom-description').value='';document.querySelectorAll('[name="body-part"]').forEach(e=>e.checked=false);$('#add-dialog').close();toast('已添加到常用');};
+document.addEventListener('click',e=>{
+ const rm=e.target.closest('[data-remove-custom]');if(!rm)return;
+ const name=rm.dataset.removeCustom;
+ Object.keys(groups).forEach(g=>{if(Array.isArray(groups[g]))groups[g]=groups[g].filter(t=>t!==name);else Object.keys(groups[g]).forEach(p=>groups[g][p]=groups[g][p].filter(t=>t!==name));});
+ favorites=favorites.filter(t=>t!==name);delete descriptions[name];customTags.delete(name);
+ persist();renderTags();renderCustomManager();toast('已删除标签：'+name);
+});
+$('#close-add').onclick=()=>$('#add-dialog').close();$('#close-favorites').onclick=()=>$('#favorites-dialog').close();
+document.addEventListener('click',e=>{if(e.target.closest('[data-new-tag]')){renderCustomManager();$('#add-dialog').showModal();}});
+$('#custom-category').onchange=()=>$('#body-part-field').hidden=$('#custom-category').value!=='身体';
+$('#add-form').onsubmit=e=>{e.preventDefault();const name=$('#custom-name').value.trim();if(!name){$('#custom-name').focus();return;}if(categoryOf(name)){toast('已有这个标签，可以从上方添加');return;}const g=$('#custom-category').value;if(g==='身体'){const parts=[...document.querySelectorAll('[name="body-part"]:checked')].map(e=>e.value);if(!parts.length){toast('选一个部位，或选其他部位');return;}parts.forEach(p=>(groups.身体[p]??=[]).push(name));}else groups[g].push(name);descriptions[name]=$('#custom-description').value.trim();customTags.add(name);if(!favorites.includes(name))favorites.push(name);renderTags();renderCustomManager();$('#custom-name').value='';$('#custom-description').value='';document.querySelectorAll('[name="body-part"]').forEach(e=>e.checked=false);$('#add-dialog').close();toast('已添加到常用');};
 
 renderTags();
 
@@ -170,11 +182,13 @@ try{
   if(saved.favorites)favorites=saved.favorites;
   if(saved.groups)Object.assign(groups,saved.groups);
   if(saved.descriptions)Object.assign(descriptions,saved.descriptions);
+  if(Array.isArray(saved.customTags))customTags=new Set(saved.customTags);
+  if(groups['其他 / 不确定']){const legacyTags=groups['其他 / 不确定'];if(Array.isArray(legacyTags)&&legacyTags.length){groups['状态']=[...new Set([...(groups['状态']||[]),...legacyTags])];}delete groups['其他 / 不确定'];}
  }
 }catch(error){storageReadable=false;toast('本机数据未能读取，请勿继续记录或清理应用数据');}
 function persist(){
  if(!storageReadable){toast('请先处理本机数据读取问题');return false;}
- try{localStorage.setItem(storageKey,JSON.stringify({version:1,records,deletedRecords,favorites,groups,descriptions}));return true;}
+ try{localStorage.setItem(storageKey,JSON.stringify({version:1,records,deletedRecords,favorites,groups,descriptions,customTags:[...customTags]}));return true;}
  catch(error){toast('保存失败，可能是存储空间不足；内容仍留在页面');return false;}
 }
 $('.draft').textContent='仅存本机';
@@ -268,15 +282,15 @@ window.cikeBack=()=>{
  return false;
 };
 
-function composerSnapshot(){return {tags:[...selected],ratings:{...ratings},parts:[...occurrenceParts].map(([k,v])=>[k,[...v]]),notes:[...tagNotes],thoughts:[...thoughtSelections],occurred:$('#occurred').value,timeHidden:$('#time-field').hidden,expanded:expandedTag,legacy:$('#legacy-note').value};}
+function composerSnapshot(){return {tags:[...selected],ratings:{...ratings},parts:[...occurrenceParts].map(([k,v])=>[k,[...v]]),notes:[...tagNotes],thoughts:[...thoughtSelections],occurred:$('#occurred').value,timeHidden:$('#time-field').hidden,expanded:expandedTag,free:$('#free-note').value};}
 function restoreComposer(draft){
  selected.clear();draft.tags.forEach(t=>selected.add(t));Object.keys(ratings).forEach(k=>delete ratings[k]);Object.assign(ratings,draft.ratings);
  occurrenceParts.clear();draft.parts.forEach(([k,v])=>occurrenceParts.set(k,new Set(v)));tagNotes.clear();draft.notes.forEach(([k,v])=>tagNotes.set(k,v));
- thoughtSelections.clear();draft.thoughts.forEach(([k,v])=>thoughtSelections.set(k,v));expandedTag=draft.expanded;$('#occurred').value=draft.occurred;$('#time-field').hidden=draft.timeHidden;$('#legacy-note').value=draft.legacy;renderTags();
+ thoughtSelections.clear();draft.thoughts.forEach(([k,v])=>thoughtSelections.set(k,v));expandedTag=draft.expanded;$('#occurred').value=draft.occurred;$('#time-field').hidden=draft.timeHidden;$('#free-note').value=draft.free||'';renderTags();
 }
 function finishEditing(){
  const draft=draftBeforeEdit;editingId=null;draftBeforeEdit=null;
- $('.moment-heading h2').textContent='这一刻';$('#save').innerHTML='记下 <span aria-hidden="true">↗</span>';$('#cancel-edit').hidden=true;$('#legacy-note-field').hidden=true;
+ $('.moment-heading h2').textContent='这一刻';$('#save').innerHTML='记下 <span aria-hidden="true">↗</span>';$('#cancel-edit').hidden=true;
  if(draft)restoreComposer(draft);
 }
 function localDateTime(value){const date=new Date(value);return new Date(date.getTime()-date.getTimezoneOffset()*60000).toISOString().slice(0,16);}
@@ -285,8 +299,8 @@ function beginEditing(id){
  const record=records.find(r=>r.id===id);if(!record)return;
  draftBeforeEdit=composerSnapshot();editingId=id;
  const local=localDateTime(record.date);
- restoreComposer({tags:record.tags.map(t=>t.name),ratings:Object.fromEntries(record.tags.filter(t=>t.rating).map(t=>[t.name,t.rating])),parts:record.tags.map(t=>[t.name,t.parts||[]]),notes:record.tags.map(t=>[t.name,t.note||'']),thoughts:(record.thoughts||[]).map(t=>[t,true]),occurred:local,timeHidden:false,expanded:record.tags[0]?.name??null,legacy:record.note||''});
- $('.moment-heading h2').textContent='修改记录';$('#save').textContent='保存修改';$('#cancel-edit').hidden=false;$('#legacy-note-field').hidden=!record.note;showPage('record');$('#record-scroll').scrollTop=0;
+ restoreComposer({tags:record.tags.map(t=>t.name),ratings:Object.fromEntries(record.tags.filter(t=>t.rating).map(t=>[t.name,t.rating])),parts:record.tags.map(t=>[t.name,t.parts||[]]),notes:record.tags.map(t=>[t.name,t.note||'']),thoughts:(record.thoughts||[]).map(t=>[t,true]),occurred:local,timeHidden:false,expanded:record.tags[0]?.name??null,free:record.note||''});
+ $('.moment-heading h2').textContent='修改记录';$('#save').textContent='保存修改';$('#cancel-edit').hidden=false;showPage('record');$('#record-scroll').scrollTop=0;
 }
 $('#cancel-edit').onclick=()=>{if(editingId===null)return;finishEditing();showPage('export');};
 function requestDelete(id){

@@ -71,7 +71,7 @@ public final class ReportDocx {
                 if(!t.optString("note").isEmpty())body.append(p("补充："+t.optString("note"),false,22,true));
             }
             JSONArray thoughts=r.optJSONArray("thoughts");if(thoughts!=null)for(int j=0;j<thoughts.length();j++)body.append(p(thoughts.getString(j),false,22,true));
-            body.append(p(r.optString("note").isEmpty()?"":"补充："+r.optString("note"),false,22,false));
+            body.append(p(r.optString("note").isEmpty()?"":"自由描述："+r.optString("note"),false,22,false));
         }
         String document="<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><w:document xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\"><w:body>"+body+"<w:sectPr><w:pgSz w:w=\"11906\" w:h=\"16838\"/><w:pgMar w:top=\"1000\" w:right=\"1100\" w:bottom=\"1000\" w:left=\"1100\"/></w:sectPr></w:body></w:document>";
         ByteArrayOutputStream bytes=new ByteArrayOutputStream();
